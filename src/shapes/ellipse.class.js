@@ -1,4 +1,4 @@
-(function(global){
+(function(global) {
 
   'use strict';
 
@@ -10,6 +10,12 @@
     fabric.warn('fabric.Ellipse is already defined.');
     return;
   }
+
+  var cacheProperties = fabric.Object.prototype.cacheProperties.concat();
+  cacheProperties.push(
+    'rx',
+    'ry'
+  );
 
   /**
    * Ellipse class
@@ -41,21 +47,57 @@
      */
     ry:   0,
 
+    cacheProperties: cacheProperties,
+
     /**
      * Constructor
      * @param {Object} [options] Options object
      * @return {fabric.Ellipse} thisArg
      */
     initialize: function(options) {
-      options = options || { };
-
       this.callSuper('initialize', options);
+      this.set('rx', options && options.rx || 0);
+      this.set('ry', options && options.ry || 0);
+    },
 
-      this.set('rx', options.rx || 0);
-      this.set('ry', options.ry || 0);
+    /**
+     * @private
+     * @param {String} key
+     * @param {*} value
+     * @return {fabric.Ellipse} thisArg
+     */
+    _set: function(key, value) {
+      this.callSuper('_set', key, value);
+      switch (key) {
 
-      this.set('width', this.get('rx') * 2);
-      this.set('height', this.get('ry') * 2);
+        case 'rx':
+          this.rx = value;
+          this.set('width', value * 2);
+          break;
+
+        case 'ry':
+          this.ry = value;
+          this.set('height', value * 2);
+          break;
+
+      }
+      return this;
+    },
+
+    /**
+     * Returns horizontal radius of an object (according to how an object is scaled)
+     * @return {Number}
+     */
+    getRx: function() {
+      return this.get('rx') * this.get('scaleX');
+    },
+
+    /**
+     * Returns Vertical radius of an object (according to how an object is scaled)
+     * @return {Number}
+     */
+    getRy: function() {
+      return this.get('ry') * this.get('scaleY');
     },
 
     /**
@@ -64,10 +106,7 @@
      * @return {Object} object representation of an instance
      */
     toObject: function(propertiesToInclude) {
-      return extend(this.callSuper('toObject', propertiesToInclude), {
-        rx: this.get('rx'),
-        ry: this.get('ry')
-      });
+      return this.callSuper('toObject', ['rx', 'ry'].concat(propertiesToInclude));
     },
 
     /* _TO_SVG_START_ */
@@ -78,14 +117,15 @@
      */
     toSVG: function(reviver) {
       var markup = this._createBaseSVGMarkup();
-
       markup.push(
-        '<ellipse ',
-          'rx="', this.get('rx'),
-          '" ry="', this.get('ry'),
+        '<ellipse ', this.getSvgId(),
+          'cx="0" cy="0" ',
+          'rx="', this.rx,
+          '" ry="', this.ry,
           '" style="', this.getSvgStyles(),
           '" transform="', this.getSvgTransform(),
-        '"/>'
+          this.getSvgTransformMatrix(),
+        '"/>\n'
       );
 
       return reviver ? reviver(markup.join('')) : markup.join('');
@@ -93,38 +133,24 @@
     /* _TO_SVG_END_ */
 
     /**
-     * Renders this instance on a given context
-     * @param ctx {CanvasRenderingContext2D} context to render on
-     * @param noTransform {Boolean} context is not transformed when set to true
-     */
-    render: function(ctx, noTransform) {
-      // do not use `get` for perf. reasons
-      if (this.rx === 0 || this.ry === 0) return;
-      return this.callSuper('render', ctx, noTransform);
-    },
-
-    /**
      * @private
-     * @param ctx {CanvasRenderingContext2D} context to render on
+     * @param {CanvasRenderingContext2D} ctx context to render on
      */
-    _render: function(ctx, noTransform) {
+    _render: function(ctx) {
       ctx.beginPath();
-      ctx.globalAlpha = this.group ? (ctx.globalAlpha * this.opacity) : this.opacity;
       ctx.save();
-      ctx.transform(1, 0, 0, this.ry/this.rx, 0, 0);
-      ctx.arc(noTransform ? this.left : 0, noTransform ? this.top * this.rx/this.ry : 0, this.rx, 0, piBy2, false);
+      ctx.transform(1, 0, 0, this.ry / this.rx, 0, 0);
+      ctx.arc(
+        0,
+        0,
+        this.rx,
+        0,
+        piBy2,
+        false);
       ctx.restore();
       this._renderFill(ctx);
       this._renderStroke(ctx);
     },
-
-    /**
-     * Returns complexity of an instance
-     * @return {Number} complexity
-     */
-    complexity: function() {
-      return 1;
-    }
   });
 
   /* _FROM_SVG_START_ */
@@ -142,29 +168,17 @@
    * @memberOf fabric.Ellipse
    * @param {SVGElement} element Element to parse
    * @param {Object} [options] Options object
+   * @param {Function} [callback] Options callback invoked after parsing is finished
    * @return {fabric.Ellipse}
    */
-  fabric.Ellipse.fromElement = function(element, options) {
+  fabric.Ellipse.fromElement = function(element, callback, options) {
     options || (options = { });
 
     var parsedAttributes = fabric.parseAttributes(element, fabric.Ellipse.ATTRIBUTE_NAMES);
 
-    if (!('left' in parsedAttributes)) {
-      parsedAttributes.left = 0;
-    }
-    if (!('top' in parsedAttributes)) {
-      parsedAttributes.top = 0;
-    }
-    if (!('transformMatrix' in parsedAttributes)) {
-      parsedAttributes.left -= (options.width / 2);
-      parsedAttributes.top -= (options.height / 2);
-    }
-    var ellipse = new fabric.Ellipse(extend(parsedAttributes, options));
-
-    ellipse.cx = parseFloat(element.getAttribute('cx')) || 0;
-    ellipse.cy = parseFloat(element.getAttribute('cy')) || 0;
-
-    return ellipse;
+    parsedAttributes.left = (parsedAttributes.left || 0) - parsedAttributes.rx;
+    parsedAttributes.top = (parsedAttributes.top || 0) - parsedAttributes.ry;
+    callback(new fabric.Ellipse(extend(parsedAttributes, options)));
   };
   /* _FROM_SVG_END_ */
 
@@ -173,10 +187,11 @@
    * @static
    * @memberOf fabric.Ellipse
    * @param {Object} object Object to create an instance from
+   * @param {function} [callback] invoked with new instance as first argument
    * @return {fabric.Ellipse}
    */
-  fabric.Ellipse.fromObject = function(object) {
-    return new fabric.Ellipse(object);
+  fabric.Ellipse.fromObject = function(object, callback) {
+    return fabric.Object._fromObject('Ellipse', object, callback);
   };
 
 })(typeof exports !== 'undefined' ? exports : this);

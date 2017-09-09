@@ -1,4 +1,4 @@
-(function(){
+(function() {
 
   var min = Math.min,
       max = Math.max;
@@ -12,10 +12,9 @@
      * @return {Boolean}
      */
     _shouldGroup: function(e, target) {
-      var activeObject = this.getActiveObject();
-      return e.shiftKey &&
-            (this.getActiveGroup() || (activeObject && activeObject !== target))
-            && this.selection;
+      var activeObject = this._activeObject;
+      return activeObject && e[this.selectionKey] && target && target.selectable && this.selection &&
+            (activeObject !== target || activeObject.type === 'activeSelection');
     },
 
     /**
@@ -24,74 +23,54 @@
      * @param {fabric.Object} target
      */
     _handleGrouping: function (e, target) {
-
-      if (target === this.getActiveGroup()) {
-
-        // if it's a group, find target again, this time skipping group
+      var activeObject = this._activeObject;
+      if (activeObject.__corner) {
+        return;
+      }
+      if (target === activeObject) {
+        // if it's a group, find target again, using activeGroup objects
         target = this.findTarget(e, true);
-
-        // if even object is not found, bail out
-        if (!target || target.isType('group')) {
+        // if even object is not found or we are on activeObjectCorner, bail out
+        if (!target) {
           return;
         }
       }
-      if (this.getActiveGroup()) {
-        this._updateActiveGroup(target, e);
+      if (activeObject && activeObject.type === 'activeSelection') {
+        this._updateActiveSelection(target, e);
       }
       else {
-        this._createActiveGroup(target, e);
-      }
-
-      if (this._activeGroup) {
-        this._activeGroup.saveCoords();
+        this._createActiveSelection(target, e);
       }
     },
 
     /**
      * @private
      */
-    _updateActiveGroup: function(target, e) {
-      var activeGroup = this.getActiveGroup();
-
-      if (activeGroup.contains(target)) {
-
-        activeGroup.removeWithUpdate(target);
-        this._resetObjectTransform(activeGroup);
-        target.set('active', false);
-
-        if (activeGroup.size() === 1) {
-          // remove group alltogether if after removal it only contains 1 object
-          this.discardActiveGroup(e);
+    _updateActiveSelection: function(target, e) {
+      var activeSelection = this._activeObject;
+      if (activeSelection.contains(target)) {
+        activeSelection.removeWithUpdate(target);
+        this._hoveredTarget = target;
+        if (activeSelection.size() === 1) {
           // activate last remaining object
-          this.setActiveObject(activeGroup.item(0));
+          this.setActiveObject(activeSelection.item(0), e);
           return;
         }
       }
       else {
-        activeGroup.addWithUpdate(target);
-        this._resetObjectTransform(activeGroup);
+        activeSelection.addWithUpdate(target);
+        this._hoveredTarget = activeSelection;
       }
-      this.fire('selection:created', { target: activeGroup, e: e });
-      activeGroup.set('active', true);
+      this.fire('selection:created', { target: activeSelection, e: e });
     },
 
     /**
      * @private
      */
-    _createActiveGroup: function(target, e) {
-
-      if (this._activeObject && target !== this._activeObject) {
-
-        var group = this._createGroup(target);
-        group.addWithUpdate();
-
-        this.setActiveGroup(group);
-        this._activeObject = null;
-
-        this.fire('selection:created', { target: group, e: e });
-      }
-
-      target.set('active', true);
+    _createActiveSelection: function(target, e) {
+      var group = this._createGroup(target);
+      this.setActiveObject(group, e);
+      this.fire('selection:created', { target: group, e: e });
     },
 
     /**
@@ -99,16 +78,13 @@
      * @param {Object} target
      */
     _createGroup: function(target) {
-
       var objects = this.getObjects(),
           isActiveLower = objects.indexOf(this._activeObject) < objects.indexOf(target),
           groupObjects = isActiveLower
-            ? [ this._activeObject, target ]
-            : [ target, this._activeObject ];
-
-      return new fabric.Group(groupObjects, {
-        originX: 'center',
-        originY: 'center',
+            ? [this._activeObject, target]
+            : [target, this._activeObject];
+      this._activeObject.isEditing && this._activeObject.exitEditing();
+      return new fabric.ActiveSelection(groupObjects, {
         canvas: this
       });
     },
@@ -126,16 +102,12 @@
         this.setActiveObject(group[0], e);
       }
       else if (group.length > 1) {
-        group = new fabric.Group(group.reverse(), {
-          originX: 'center',
-          originY: 'center',
+        group = new fabric.ActiveSelection(group.reverse(), {
           canvas: this
         });
-        group.addWithUpdate();
-        this.setActiveGroup(group, e);
-        group.saveCoords();
-        this.fire('selection:created', { target: group });
-        this.renderAll();
+        this.setActiveObject(group, e);
+        this.fire('selection:created', { target: group, e: e });
+        this.requestRenderAll();
       }
     },
 
@@ -143,7 +115,7 @@
      * @private
      */
     _collectObjects: function() {
-      var group = [ ],
+      var group = [],
           currentObject,
           x1 = this._groupSelector.ex,
           y1 = this._groupSelector.ey,
@@ -156,18 +128,21 @@
       for (var i = this._objects.length; i--; ) {
         currentObject = this._objects[i];
 
-        if (!currentObject || !currentObject.selectable || !currentObject.visible) continue;
+        if (!currentObject || !currentObject.selectable || !currentObject.visible) {
+          continue;
+        }
 
         if (currentObject.intersectsWithRect(selectionX1Y1, selectionX2Y2) ||
             currentObject.isContainedWithinRect(selectionX1Y1, selectionX2Y2) ||
             currentObject.containsPoint(selectionX1Y1) ||
             currentObject.containsPoint(selectionX2Y2)
         ) {
-          currentObject.set('active', true);
           group.push(currentObject);
 
           // only add one object if it's a click
-          if (isClick) break;
+          if (isClick) {
+            break;
+          }
         }
       }
 
@@ -181,14 +156,7 @@
       if (this.selection && this._groupSelector) {
         this._groupSelectedObjects(e);
       }
-
-      var activeGroup = this.getActiveGroup();
-      if (activeGroup) {
-        activeGroup.setObjectsCoords().setCoords();
-        activeGroup.isMoving = false;
-        this.setCursor(this.defaultCursor);
-      }
-
+      this.setCursor(this.defaultCursor);
       // clear selection and current transformation
       this._groupSelector = null;
       this._currentTransform = null;

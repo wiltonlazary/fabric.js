@@ -1,32 +1,37 @@
 (function() {
 
   var REFERENCE_PATH_OBJECT = {
-    'type':               'path',
-    'originX':            'left',
-    'originY':            'top',
-    'left':               200,
-    'top':                200,
-    'width':              200,
-    'height':             200,
-    'fill':               'red',
-    'stroke':             'blue',
-    'strokeWidth':        1,
-    'strokeDashArray':    null,
-    'strokeLineCap':      'butt',
-    'strokeLineJoin':     'miter',
-    'strokeMiterLimit':   10,
-    'scaleX':             1,
-    'scaleY':             1,
-    'angle':              0,
-    'flipX':              false,
-    'flipY':              false,
-    'opacity':            1,
-    'path':               [['M', 100, 100], ['L', 300, 100], ['L', 200, 300], ['z']],
-    'pathOffset':         { x: 100, y: 100 },
-    'shadow':             null,
-    'visible':            true,
-    'backgroundColor':    '',
-    'clipTo':             null
+    'version':                  fabric.version,
+    'type':                     'path',
+    'originX':                  'left',
+    'originY':                  'top',
+    'left':                     100,
+    'top':                      100,
+    'width':                    200,
+    'height':                   200,
+    'fill':                     'red',
+    'stroke':                   'blue',
+    'strokeWidth':              1,
+    'strokeDashArray':          null,
+    'strokeLineCap':            'butt',
+    'strokeLineJoin':           'miter',
+    'strokeMiterLimit':         10,
+    'scaleX':                   1,
+    'scaleY':                   1,
+    'angle':                    0,
+    'flipX':                    false,
+    'flipY':                    false,
+    'opacity':                  1,
+    'path':                     [['M', 100, 100], ['L', 300, 100], ['L', 200, 300], ['z']],
+    'shadow':                   null,
+    'visible':                  true,
+    'backgroundColor':          '',
+    'clipTo':                   null,
+    'fillRule':                 'nonzero',
+    'globalCompositeOperation': 'source-over',
+    'skewX':                    0,
+    'skewY':                    0,
+    'transformMatrix':          null
   };
 
   function getPathElement(path) {
@@ -46,7 +51,7 @@
   }
 
   function makePathObject(callback) {
-    getPathObject("M 100 100 L 300 100 L 200 300 z", callback);
+    getPathObject('M 100 100 L 300 100 L 200 300 z', callback);
   }
 
   QUnit.module('fabric.Path');
@@ -64,19 +69,27 @@
       try {
         new fabric.Path();
       }
-      catch(err) {
+      catch (err) {
         error = err;
       }
 
-      ok(error, 'should throw error');
+      ok(typeof error === 'undefined', 'should not throw error on empty path');
       start();
     });
+  });
+
+  asyncTest('initialize', function() {
+    var path = new fabric.Path('M 100 100 L 200 100 L 170 200 z', { top: 0 });
+
+    equal(path.left, 100);
+    equal(path.top, 0);
+    start();
   });
 
   asyncTest('toString', function() {
     makePathObject(function(path) {
       ok(typeof path.toString == 'function');
-      equal(path.toString(), '#<fabric.Path (4): { "top": 200, "left": 200 }>');
+      equal(path.toString(), '#<fabric.Path (4): { "top": 100, "left": 100 }>');
       start();
     });
   });
@@ -89,28 +102,51 @@
     });
   });
 
-  asyncTest('path array not shared when cloned', function() {
+  asyncTest('toObject', function() {
+    makePathObject(function(path) {
+      path.top = fabric.Object.prototype.top;
+      path.left = fabric.Object.prototype.left;
+      path.includeDefaultValues = false;
+      var obj = path.toObject();
+      equal(obj.top, fabric.Object.prototype.top, 'top is available also when equal to prototype');
+      equal(obj.left, fabric.Object.prototype.left, 'left is available also when equal to prototype');
+      start();
+    });
+  });
+
+  asyncTest('toSVG', function() {
+    makePathObject(function(path) {
+      ok(typeof path.toSVG == 'function');
+      deepEqual(path.toSVG(), '<path d="M 100 100 L 300 100 L 200 300 z" style="stroke: rgb(0,0,255); stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(255,0,0); fill-rule: nonzero; opacity: 1;" transform="translate(200.5 200.5) translate(-200, -200) " stroke-linecap="round" />\n');
+      start();
+    });
+  });
+
+  test('path array not shared when cloned', function() {
     makePathObject(function(originalPath) {
       originalPath.clone(function(clonedPath) {
-
         clonedPath.path[0][1] = 200;
         equal(originalPath.path[0][1], 100);
-
-        start();
       });
     });
   });
 
   asyncTest('toDatalessObject', function() {
     makePathObject(function(path) {
-      ok(typeof path.toDatalessObject == 'function');
-      deepEqual(path.toDatalessObject(), REFERENCE_PATH_OBJECT);
+      ok(typeof path.toDatalessObject === 'function');
+      deepEqual(path.toDatalessObject(), REFERENCE_PATH_OBJECT, 'if not sourcePath the object is same');
+      start();
+    });
+  });
 
+  asyncTest('toDatalessObject with sourcePath', function() {
+    makePathObject(function(path) {
       var src = 'http://example.com/';
-      path.setSourcePath(src);
-      deepEqual(path.toDatalessObject(), fabric.util.object.extend(fabric.util.object.clone(REFERENCE_PATH_OBJECT), {
-        path: src
-      }));
+      path.sourcePath = src;
+      var clonedRef = fabric.util.object.clone(REFERENCE_PATH_OBJECT);
+      clonedRef.sourcePath = src;
+      delete clonedRef.path;
+      deepEqual(path.toDatalessObject(), clonedRef, 'if sourcePath the object looses path');
       start();
     });
   });
@@ -123,7 +159,16 @@
   });
 
   asyncTest('fromObject', function() {
-    ok(typeof fabric.Path.fromObject == 'function');
+    ok(typeof fabric.Path.fromObject === 'function');
+    fabric.Path.fromObject(REFERENCE_PATH_OBJECT, function(path) {
+      ok(path instanceof fabric.Path);
+      deepEqual(path.toObject(), REFERENCE_PATH_OBJECT);
+      start();
+    });
+  });
+
+  asyncTest('fromObject with sourcePath', function() {
+    ok(typeof fabric.Path.fromObject === 'function');
     fabric.Path.fromObject(REFERENCE_PATH_OBJECT, function(path) {
       ok(path instanceof fabric.Path);
       deepEqual(path.toObject(), REFERENCE_PATH_OBJECT);
@@ -132,7 +177,7 @@
   });
 
   asyncTest('fromElement', function() {
-    ok(typeof fabric.Path.fromElement == 'function');
+    ok(typeof fabric.Path.fromElement === 'function');
     var elPath = fabric.document.createElement('path');
 
     elPath.setAttribute('d', 'M 100 100 L 300 100 L 200 300 z');
@@ -168,7 +213,7 @@
 
         deepEqual(
           path.get('transformMatrix'),
-          [ Math.cos(ANGLE), Math.sin(ANGLE), -Math.sin(ANGLE), Math.cos(ANGLE), 0, 0 ]
+          [Math.cos(ANGLE), Math.sin(ANGLE), -Math.sin(ANGLE), Math.cos(ANGLE), 0, 0]
         );
         start();
       });

@@ -2,15 +2,15 @@
 
   QUnit.module('fabric.util');
 
-  function K (x) { return x }
-
   function _createImageElement() {
-    return fabric.isLikelyNode ? new (require('canvas').Image) : fabric.document.createElement('img');
+    return fabric.isLikelyNode
+            ? new (require(fabric.canvasModule).Image)()
+            : fabric.document.createElement('img');
   }
 
   function getAbsolutePath(path) {
     var isAbsolute = /^https?:/.test(path);
-    if (isAbsolute) return path;
+    if (isAbsolute) { return path; };
     var imgEl = _createImageElement();
     imgEl.src = path;
     var src = imgEl.src;
@@ -19,8 +19,10 @@
   }
 
   var IMG_URL = fabric.isLikelyNode
-    ? require("path").join(__dirname, '../fixtures/', 'very_large_image.jpg')
+    ? require('path').join(__dirname, '../fixtures/', 'very_large_image.jpg')
     : getAbsolutePath('../fixtures/very_large_image.jpg');
+
+  var IMG_URL_NON_EXISTING = 'http://www.google.com/non-existing';
 
   test('fabric.util.toFixed', function(){
     ok(typeof fabric.util.toFixed == 'function');
@@ -129,6 +131,15 @@
     equal(camelize('--double'), 'Double');
   });
 
+  test('fabric.util.string.graphemeSplit', function() {
+    var gSplit = fabric.util.string.graphemeSplit;
+
+    ok(typeof gSplit === 'function');
+
+    deepEqual(gSplit('foo'), ['f', 'o', 'o'], 'normal test get splitted by char');
+    deepEqual(gSplit('f🙂o'), ['f', '🙂', 'o'], 'normal test get splitted by char');
+  });
+
   test('fabric.util.string.escapeXml', function() {
     var escapeXml = fabric.util.string.escapeXml;
 
@@ -185,17 +196,33 @@
     equal(source.x, 2);
   });
 
+  test('fabric.util.object.extend deep', function() {
+    var extend = fabric.util.object.extend;
+    var d = function() { };
+    var destination = { x: 1 },
+        source = { y: 2, a: { b: 1, c: [1, 2, 3, d] } };
+
+    extend(destination, source, true);
+
+    equal(destination.x, 1, 'x is still in destination');
+    equal(destination.y, 2, 'y has been added');
+    deepEqual(destination.a, source.a, 'a has been copied deeply');
+    notEqual(destination.a, source.a, 'is not the same object');
+    ok(typeof source.a.c[3] === 'function', 'is a function');
+    equal(destination.a.c[3], source.a.c[3], 'functions get referenced');
+  });
+
   test('fabric.util.object.clone', function() {
     var clone = fabric.util.object.clone;
 
     ok(typeof clone == 'function');
 
     var obj = { x: 1, y: [1, 2, 3] },
-        clone = clone(obj);
+        _clone = clone(obj);
 
-    equal(clone.x, 1);
-    notEqual(obj, clone);
-    equal(clone.y, obj.y);
+    equal(_clone.x, 1);
+    notEqual(obj, _clone);
+    equal(_clone.y, obj.y);
   });
 
   test('Function.prototype.bind', function() {
@@ -208,7 +235,7 @@
 
     var bound = fn.bind(obj);
     deepEqual([obj, undefined, undefined], bound());
-    deepEqual([obj, 1, undefined], bound(1))
+    deepEqual([obj, 1, undefined], bound(1));
     deepEqual([obj, 1, null], bound(1, null));
 
     bound = fn.bind(obj, 1);
@@ -220,7 +247,7 @@
       this.y = y;
     }
 
-    var obj = { }
+    obj = { };
     var YAxisPoint = Point.bind(obj, 0);
     var axisPoint = new YAxisPoint(5);
 
@@ -247,7 +274,7 @@
     ok(typeof fabric.util.toArray == 'function');
 
     deepEqual(['x', 'y'], fabric.util.toArray({ 0: 'x', 1: 'y', length: 2 }));
-    deepEqual([1, 3], fabric.util.toArray(function(){ return arguments }(1, 3)));
+    deepEqual([1, 3], fabric.util.toArray((function(){ return arguments; })(1, 3)));
 
     var nodelist = fabric.document.getElementsByTagName('div'),
         converted = fabric.util.toArray(nodelist);
@@ -370,7 +397,7 @@
   });
 
   test('fabric.loadSVGFromURL', function() {
-    equal("function", typeof fabric.loadSVGFromURL);
+    equal('function', typeof fabric.loadSVGFromURL);
   });
 
   var SVG_DOC_AS_STRING = '<?xml version="1.0"?>\
@@ -381,22 +408,17 @@
     </svg>';
 
   asyncTest('fabric.loadSVGFromString', function() {
-    equal("function", typeof fabric.loadSVGFromString);
+    equal('function', typeof fabric.loadSVGFromString);
 
-    var loadedObjects = [ ];
-    fabric.loadSVGFromString(SVG_DOC_AS_STRING, function(objects) {
-      loadedObjects = objects;
-    });
-
-    setTimeout(function() {
+    fabric.loadSVGFromString(SVG_DOC_AS_STRING, function(loadedObjects) {
       ok(loadedObjects[0] instanceof fabric.Polygon);
       equal('red', loadedObjects[0].fill);
-      start();
-    }, 1000);
+      setTimeout(start, 1000);
+    });
   });
 
   asyncTest('fabric.loadSVGFromString with surrounding whitespace', function() {
-    var loadedObjects = [ ];
+    var loadedObjects = [];
     fabric.loadSVGFromString('   \n\n  ' + SVG_DOC_AS_STRING + '  ', function(objects) {
       loadedObjects = objects;
     });
@@ -409,10 +431,7 @@
   });
 
   asyncTest('fabric.util.loadImage', function() {
-    ok(typeof fabric.util.loadImage == 'function');
-
-    var callbackInvoked = false,
-        objectPassedToCallback;
+    ok(typeof fabric.util.loadImage === 'function');
 
     if (IMG_URL.indexOf('/home/travis') === 0) {
       // image can not be accessed on travis so we're returning early
@@ -421,25 +440,15 @@
     }
 
     fabric.util.loadImage(IMG_URL, function(obj) {
-      callbackInvoked = true;
-      objectPassedToCallback = obj;
-    });
-
-    setTimeout(function() {
-      ok(callbackInvoked, 'callback should be invoked');
-
-      if (objectPassedToCallback) {
-        var oImg = new fabric.Image(objectPassedToCallback);
+      if (obj) {
+        var oImg = new fabric.Image(obj);
         ok(/fixtures\/very_large_image\.jpg$/.test(oImg.getSrc()), 'image should have correct src');
       }
-
       start();
-    }, 2000);
+    });
   });
 
   asyncTest('fabric.util.loadImage with no args', function() {
-    var callbackInvoked = false;
-
     if (IMG_URL.indexOf('/home/travis') === 0) {
       // image can not be accessed on travis so we're returning early
       expect(0);
@@ -448,13 +457,32 @@
     }
 
     fabric.util.loadImage('', function() {
-      callbackInvoked = true;
-    });
-
-    setTimeout(function() {
-      ok(callbackInvoked, 'callback should be invoked');
+      ok(1, 'callback should be invoked');
       start();
-    }, 1000);
+    });
+  });
+
+  asyncTest('fabric.util.loadImage with crossOrigin', function() {
+    if (IMG_URL.indexOf('/home/travis') === 0) {
+      // image can not be accessed on travis so we're returning early
+      expect(0);
+      start();
+      return;
+    }
+
+    fabric.util.loadImage(IMG_URL, function(img) {
+      equal(img.src || img._src, IMG_URL, 'src is set');
+      // equal(img.crossOrigin, 'anonymous', 'crossOrigin is set');
+      start();
+    }, null, 'anonymous');
+  });
+
+
+  asyncTest('fabric.util.loadImage with url for a non exsiting image', function() {
+    fabric.util.loadImage(IMG_URL_NON_EXISTING, function(img, error) {
+      equal(error, true, 'callback should be invoked with error set to true');
+      start();
+    });
   });
 
   var SVG_WITH_1_ELEMENT = '<?xml version="1.0"?>\
@@ -479,12 +507,9 @@
     var group1;
     fabric.loadSVGFromString(SVG_WITH_1_ELEMENT, function(objects, options) {
       group1 = fabric.util.groupSVGElements(objects, options);
-    });
-
-    setTimeout(function() {
-      ok(group1 instanceof fabric.Polygon);
+      ok(group1 instanceof fabric.Polygon, 'it returns just the first element in case is just one');
       start();
-    }, 2000);
+    });
   });
 
   asyncTest('fabric.util.groupSVGElements #2', function() {
@@ -492,145 +517,9 @@
     var group2;
     fabric.loadSVGFromString(SVG_WITH_2_ELEMENTS, function(objects, options) {
       group2 = fabric.util.groupSVGElements(objects, options);
-    });
-
-    setTimeout(function() {
-      ok(group2 instanceof fabric.PathGroup);
+      ok(group2 instanceof fabric.Group);
       start();
-    }, 2000);
-  });
-
-  test('Array.prototype.indexOf', function() {
-
-    // borrowed from Prototype.js
-    equal(-1, [].indexOf(1));
-    equal(-1, [0].indexOf(1));
-    equal(0, [1].indexOf(1));
-    equal(1, [0,1,2].indexOf(1));
-    equal(0, [1,2,1].indexOf(1));
-    equal(2, [1,2,1].indexOf(1, -1));
-    equal(1, [undefined,null].indexOf(null));
-
-    // ES5 compatibility tests.
-    var undef;
-    var array = [1, 2, 3, 4, 5, undef, 6, 7, 1, 2, 3];
-
-    equal(2, array.indexOf(3, -47), "large negative value for fromIndex");
-    equal(10, array.indexOf(3, 4));
-    equal(10, array.indexOf(3, -5))
-    equal(2, array.indexOf(3, {}), "nonsensical value for fromIndex");
-    equal(2, array.indexOf(3, ""), "nonsensical value for fromIndex");
-    equal(-1, array.indexOf(3, 41), "fromIndex value larger than the length of the array");
-  });
-
-  test('Array.prototype.forEach', function() {
-    ok(typeof Array.prototype.forEach === 'function');
-
-    var arr = [1,2,3];
-    var result = [ ];
-
-    arr.forEach(function(val, index, arr) {
-      result.push(val, index, arr);
     });
-
-    deepEqual(result, [1, 0, arr, 2, 1, arr, 3, 2, arr]);
-  });
-
-  test('Array.prototype.map', function() {
-
-    ok(typeof Array.prototype.map === 'function');
-
-    // borrowed from Prototype.js but modified to conform to standard
-
-    deepEqual([2,4,6], [1,2,3].map(function(x) { return x * 2; }));
-
-    var x = [1,2,3,4];
-    delete x[1];
-    delete x[3];
-    deepEqual([1, undefined, 3, undefined], x.map(K));
-    deepEqual(4, x.map(K).length);
-
-    var traversed = [];
-    x.map(function(val) {
-      traversed.push(val);
-    });
-    deepEqual([1, 3], traversed);
-    equal(2, traversed.length);
-  });
-
-  test('Array.prototype.every', function() {
-
-    ok(typeof Array.prototype.every === 'function');
-
-    // borrowed from Prototype.js but modified to conform to standard
-    ok([].every(K));
-
-    ok([true, true, true].every(K));
-    ok(![true, false, false].every(K));
-    ok(![false, false, false].every(K));
-
-    ok([1,2,3,4,5].every(function(value) {
-      return value > 0;
-    }));
-    ok(![1,2,3,4,5].every(function(value) {
-      return value > 1;
-    }));
-
-    var x = [1,2,3], traversed = [];
-    delete x[1];
-    x.every(function(val) { traversed.push(val); return true; });
-
-    deepEqual([1, 3], traversed);
-    equal(2, traversed.length);
-  });
-
-  test('Array.prototype.some', function() {
-    ok(typeof Array.prototype.some === 'function');
-
-    // borrowed from Prototype.js but modified to conform to standard
-    ok(!([].some(K)));
-
-    ok([true, true, true].some(K));
-    ok([true, false, false].some(K));
-    ok(![false, false, false].some(K));
-
-    ok([1,2,3,4,5].some(function(value) {
-      return value > 2;
-    }));
-    ok(![1,2,3,4,5].some(function(value) {
-      return value > 5;
-    }));
-
-    var x = [1,2,3], traversed = [];
-    delete x[1];
-    x.some(function(val) { traversed.push(val); });
-
-    deepEqual([1, 3], traversed);
-    equal(2, traversed.length);
-  });
-
-  test('Array.prototype.filter', function() {
-    ok(typeof Array.prototype.filter === 'function');
-
-    var arr = [1,2,3,4,5];
-    deepEqual([3,4,5], arr.filter(function(val){ return val > 2 }));
-    deepEqual([], arr.filter(function(val){ return val > 5 }));
-    deepEqual([1,2], arr.filter(function(val){ return val <= 2 }));
-  });
-
-  test('Array.prototype.reduce', function() {
-    ok(typeof Array.prototype.reduce === 'function');
-
-    var arr = [1,2,3,4,5];
-    equal(15,
-      arr.reduce(function(memo, val) { return memo + val }), 0);
-
-    deepEqual(['1!', '2!', '3!', '4!', '5!'],
-      arr.reduce(function(memo, val) { memo.push(val + '!'); return memo }, [ ]));
-
-    var arr = 'foobar'.split('');
-    equal('f0o1o2b3a4r5',
-      arr.reduce(function(memo, val, index) { return memo + val + index }, ''));
   });
 
   test('fabric.util.createClass', function() {
@@ -695,17 +584,17 @@
     });
   }
 
-  // test('fabric.util.request', function() {
-  // });
+  test('fabric.util.addListener', function() {
+    ok(typeof fabric.util.addListener === 'function', 'fabric.util.addListener is a function');
+    fabric.util.addListener(null, 'mouseup');
+    ok(true, 'test did not throw on null element addListener');
+  });
 
-  // test('fabric.util.getPointer', function() {
-  // });
-
-  // test('fabric.util.addListener', function() {
-  // });
-
-  // test('fabric.util.removeListener', function() {
-  // });
+  test('fabric.util.removeListener', function() {
+    ok(typeof fabric.util.removeListener === 'function', 'fabric.util.removeListener is a function');
+    fabric.util.removeListener(null, 'mouseup');
+    ok(true, 'test did not throw on null element removeListener');
+  });
 
   test('fabric.util.drawDashedLine', function() {
     ok(typeof fabric.util.drawDashedLine === 'function');
@@ -723,12 +612,12 @@
   test('fabric.util.array.invoke', function() {
     ok(typeof fabric.util.array.invoke === 'function');
 
-    var obj1 = { toString: function(){ return 'obj1' } };
-    var obj2 = { toString: function(){ return 'obj2' } };
-    var obj3 = { toString: function(){ return 'obj3' } };
+    var obj1 = { toString: function(){ return 'obj1'; } };
+    var obj2 = { toString: function(){ return 'obj2'; } };
+    var obj3 = { toString: function(){ return 'obj3'; } };
 
     deepEqual(['obj1', 'obj2', 'obj3'],
-      fabric.util.array.invoke([ obj1, obj2, obj3 ], 'toString'));
+      fabric.util.array.invoke([obj1, obj2, obj3], 'toString'));
 
     deepEqual(['f', 'b', 'b'],
       fabric.util.array.invoke(['foo', 'bar', 'baz'], 'charAt', 0));
@@ -745,11 +634,11 @@
     equal(-3, fabric.util.array.min([-1, -2, -3]));
     equal('a', fabric.util.array.min(['a', 'c', 'b']));
 
-    var obj1 = { valueOf: function(){ return 1 } };
-    var obj2 = { valueOf: function(){ return 2 } };
-    var obj3 = { valueOf: function(){ return 3 } };
+    var obj1 = { valueOf: function(){ return 1; } };
+    var obj2 = { valueOf: function(){ return 2; } };
+    var obj3 = { valueOf: function(){ return 3; } };
 
-    equal(obj1, fabric.util.array.min([ obj1, obj3, obj2 ]));
+    equal(obj1, fabric.util.array.min([obj1, obj3, obj2]));
   });
 
   test('fabric.util.array.max', function() {
@@ -760,22 +649,22 @@
     equal(-1, fabric.util.array.max([-1, -2, -3]));
     equal('c', fabric.util.array.max(['a', 'c', 'b']));
 
-    var obj1 = { valueOf: function(){ return 1 } };
-    var obj2 = { valueOf: function(){ return 2 } };
-    var obj3 = { valueOf: function(){ return 3 } };
+    var obj1 = { valueOf: function(){ return 1; } };
+    var obj2 = { valueOf: function(){ return 2; } };
+    var obj3 = { valueOf: function(){ return 3; } };
 
-    equal(obj3, fabric.util.array.max([ obj1, obj3, obj2 ]));
+    equal(obj3, fabric.util.array.max([obj1, obj3, obj2]));
   });
 
   test('fabric.util.populateWithProperties', function() {
-    ok(typeof fabric.util.populateWithProperties == 'function')
+    ok(typeof fabric.util.populateWithProperties == 'function');
 
     var source = {
-      foo: 'bar',
-      baz: 123,
-      qux: function() { }
-    },
-    destination = { };
+          foo: 'bar',
+          baz: 123,
+          qux: function() { }
+        },
+        destination = { };
 
     fabric.util.populateWithProperties(source, destination);
     ok(typeof destination.foo === 'undefined');
@@ -820,4 +709,243 @@
     equal(fabric.util.resolveNamespace('fabric.Image.filters'), fabric.Image.filters);
   });
 
+  test('clearFabricFontCache', function() {
+    ok(typeof fabric.util.clearFabricFontCache == 'function');
+    fabric.charWidthsCache = { arial: { some: 'cache'}, helvetica: { some: 'cache'} };
+    fabric.util.clearFabricFontCache('arial');
+    equal(fabric.charWidthsCache.arial,  undefined, 'arial cache is deleted');
+    equal(fabric.charWidthsCache.helvetica.some, 'cache', 'helvetica cache is still available');
+    fabric.util.clearFabricFontCache();
+    deepEqual(fabric.charWidthsCache, { }, 'all cache is deleted');
+  });
+
+  test('parsePreserveAspectRatioAttribute', function() {
+    ok(typeof fabric.util.parsePreserveAspectRatioAttribute == 'function');
+    var parsed;
+    parsed = fabric.util.parsePreserveAspectRatioAttribute('none');
+    equal(parsed.meetOrSlice, 'meet');
+    equal(parsed.alignX, 'none');
+    equal(parsed.alignY, 'none');
+    parsed = fabric.util.parsePreserveAspectRatioAttribute('none slice');
+    equal(parsed.meetOrSlice, 'slice');
+    equal(parsed.alignX, 'none');
+    equal(parsed.alignY, 'none');
+    parsed = fabric.util.parsePreserveAspectRatioAttribute('XmidYmax meet');
+    equal(parsed.meetOrSlice, 'meet');
+    equal(parsed.alignX, 'mid');
+    equal(parsed.alignY, 'max');
+  });
+
+  test('multiplyTransformMatrices', function() {
+    ok(typeof fabric.util.multiplyTransformMatrices == 'function');
+    var m1 = [1, 1, 1, 1, 1, 1], m2 = [1, 1, 1, 1, 1, 1], m3;
+    m3 = fabric.util.multiplyTransformMatrices(m1, m2);
+    deepEqual(m3, [2, 2, 2, 2, 3, 3]);
+    m3 = fabric.util.multiplyTransformMatrices(m1, m2, true);
+    deepEqual(m3, [2, 2, 2, 2, 0, 0]);
+  });
+
+  test('customTransformMatrix', function() {
+    ok(typeof fabric.util.customTransformMatrix == 'function');
+    var m1 = fabric.util.customTransformMatrix(5, 4, 45);
+    deepEqual(m1, [5, 0, 4.999999999999999, 4, 0, 0]);
+  });
+
+  test('resetObjectTransform', function() {
+    ok(typeof fabric.util.resetObjectTransform == 'function');
+    var rect = new fabric.Rect({
+      top: 1,
+      width: 100,
+      height: 100,
+      angle: 30,
+      scaleX: 2,
+      scaleY: 1,
+      flipX: true,
+      flipY: true,
+      skewX: 30,
+      skewY: 30
+    });
+    equal(rect.skewX, 30);
+    equal(rect.skewY, 30);
+    equal(rect.scaleX, 2);
+    equal(rect.scaleY, 1);
+    equal(rect.flipX, true);
+    equal(rect.flipY, true);
+    equal(rect.angle, 30);
+    fabric.util.resetObjectTransform(rect);
+    equal(rect.skewX, 0);
+    equal(rect.skewY, 0);
+    equal(rect.scaleX, 1);
+    equal(rect.scaleY, 1);
+    equal(rect.flipX, false);
+    equal(rect.flipY, false);
+    equal(rect.angle, 0);
+  });
+
+  test('invertTransform', function() {
+    ok(typeof fabric.util.invertTransform == 'function');
+    var m1 = [1, 2, 3, 4, 5, 6], m3;
+    m3 = fabric.util.invertTransform(m1);
+    deepEqual(m3, [-2, 1, 1.5, -0.5, 1, -2]);
+  });
+
+  test('fabric.util.request', function() {
+    ok(typeof fabric.util.request === 'function', 'fabric.util.request is a function');
+  });
+
+  test('fabric.util.getPointer', function() {
+    ok(typeof fabric.util.getPointer === 'function', 'fabric.util.getPointer is a function');
+  });
+
+  test('rotateVector', function() {
+    ok(typeof fabric.util.rotateVector == 'function');
+  });
+
+  test('rotatePoint', function() {
+    ok(typeof fabric.util.rotatePoint == 'function');
+    var origin = new fabric.Point(3, 0);
+    var point = new fabric.Point(4, 0);
+    var rotated = fabric.util.rotatePoint(point, origin, Math.PI);
+    equal(Math.round(rotated.x), 2);
+    equal(Math.round(rotated.y), 0);
+    var rotated = fabric.util.rotatePoint(point, origin, Math.PI / 2);
+    equal(Math.round(rotated.x), 3);
+    equal(Math.round(rotated.y), -2);
+  });
+
+  test('transformPoint', function() {
+    ok(typeof fabric.util.transformPoint == 'function');
+    var point = new fabric.Point(2, 2);
+    var matrix = [3, 0, 0, 2, 10, 4];
+    var tp = fabric.util.transformPoint(point, matrix);
+    equal(Math.round(tp.x), 16);
+    equal(Math.round(tp.y), 8);
+  });
+
+  test('makeBoundingBoxFromPoints', function() {
+    ok(typeof fabric.util.makeBoundingBoxFromPoints == 'function');
+  });
+
+  test('parseUnit', function() {
+    ok(typeof fabric.util.parseUnit == 'function');
+    equal(Math.round(fabric.util.parseUnit('30mm'), 0), 113, '30mm is pixels');
+    equal(Math.round(fabric.util.parseUnit('30cm'), 0), 1134, '30cm is pixels');
+    equal(Math.round(fabric.util.parseUnit('30in'), 0), 2880, '30in is pixels');
+    equal(Math.round(fabric.util.parseUnit('30pt'), 0), 40, '30mm is pixels');
+    equal(Math.round(fabric.util.parseUnit('30pc'), 0), 480, '30mm is pixels');
+  });
+
+  test('createCanvasElement', function() {
+    ok(typeof fabric.util.createCanvasElement === 'function');
+    var element = fabric.util.createCanvasElement();
+    ok(element.getContext);
+  });
+
+  test('createImage', function() {
+    ok(typeof fabric.util.createImage === 'function');
+    var element = fabric.util.createImage();
+    equal(element.naturalHeight, 0);
+    equal(element.naturalWidth, 0);
+  });
+
+  // test('createAccessors', function() {
+  //   ok(typeof fabric.util.createAccessors == 'function');
+  // });
+
+  test('qrDecompose with identity matrix', function() {
+    ok(typeof fabric.util.qrDecompose == 'function');
+    var options = fabric.util.qrDecompose(fabric.iMatrix);
+    equal(options.scaleX, 1, 'imatrix has scale 1');
+    equal(options.scaleY, 1, 'imatrix has scale 1');
+    equal(options.skewX, 0, 'imatrix has skewX 0');
+    equal(options.skewY, 0, 'imatrix has skewY 0');
+    equal(options.angle, 0, 'imatrix has angle 0');
+    equal(options.translateX, 0, 'imatrix has translateX 0');
+    equal(options.translateY, 0, 'imatrix has translateY 0');
+  });
+
+  test('qrDecompose with matrix', function() {
+    ok(typeof fabric.util.qrDecompose == 'function');
+    var options = fabric.util.qrDecompose([2, 0.4, 0.5, 3, 100, 200]);
+    equal(Math.round(options.scaleX, 4), 2, 'imatrix has scale');
+    equal(Math.round(options.scaleY, 4), 3, 'imatrix has scale');
+    equal(Math.round(options.skewX, 4), 28, 'imatrix has skewX');
+    equal(options.skewY, 0, 'imatrix has skewY 0');
+    equal(Math.round(options.angle, 4), 11, 'imatrix has angle 0');
+    equal(options.translateX, 100, 'imatrix has translateX 100');
+    equal(options.translateY, 200, 'imatrix has translateY 200');
+  });
+
+  test('drawArc', function() {
+    ok(typeof fabric.util.drawArc == 'function');
+    var canvas = this.canvas = fabric.isLikelyNode ? fabric.createCanvasForNode(600, 600, {enableRetinaScaling: false}) : new fabric.Canvas(null, {enableRetinaScaling: false});
+    var ctx = canvas.contextContainer;
+    fabric.util.drawArc(ctx, 0, 0, [
+      50,
+      30,
+      0,
+      1,
+      1,
+      100,
+      100,
+    ]);
+    fabric.util.drawArc(ctx, 0, 0, [
+      50,
+      30,
+      0,
+      1,
+      1,
+      100,
+      100,
+    ]);
+  });
+
+  test('get bounds of arc', function() {
+    ok(typeof fabric.util.getBoundsOfArc === 'function');
+    var bounds = fabric.util.getBoundsOfArc(0, 0, 50, 30, 0, 1, 1, 100, 100);
+    var expectedBounds = [
+      { x: 0, y: -8.318331151877368 },
+      { x: 133.33333333333331, y: 19.99999999999999 },
+      { x: 100.00000000000003, y: 19.99999999999999 },
+      { x: 147.19721858646224, y: 100 }
+    ];
+    deepEqual(bounds, expectedBounds, 'bounds are as expected');
+  });
+
+  test('fabric.util.limitDimsByArea', function() {
+    ok(typeof fabric.util.limitDimsByArea === 'function');
+    var dims = fabric.util.limitDimsByArea(1, 10000);
+    equal(dims.x, 100);
+    equal(dims.y, 100);
+  });
+
+  test('fabric.util.limitDimsByArea ar > 1', function() {
+    var dims = fabric.util.limitDimsByArea(3, 10000);
+    equal(dims.x, 173);
+    equal(dims.y, 57);
+  });
+
+  test('fabric.util.limitDimsByArea ar < 1', function() {
+    var dims = fabric.util.limitDimsByArea(1 / 3, 10000);
+    equal(dims.x, 57);
+    equal(dims.y, 173);
+  });
+
+  test('fabric.util.capValue ar < 1', function() {
+    ok(typeof fabric.util.capValue === 'function');
+    var val = fabric.util.capValue(3, 10, 70);
+    equal(val, 10, 'value is not capped');
+  });
+
+  test('fabric.util.capValue ar < 1', function() {
+    ok(typeof fabric.util.capValue === 'function');
+    var val = fabric.util.capValue(3, 1, 70);
+    equal(val, 3, 'min cap');
+  });
+
+  test('fabric.util.capValue ar < 1', function() {
+    ok(typeof fabric.util.capValue === 'function');
+    var val = fabric.util.capValue(3, 80, 70);
+    equal(val, 70, 'max cap');
+  });
 })();

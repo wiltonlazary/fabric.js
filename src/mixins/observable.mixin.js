@@ -1,4 +1,4 @@
-(function(){
+(function() {
 
   /**
    * @private
@@ -6,13 +6,15 @@
    * @param {Function} handler
    */
   function _removeEventListener(eventName, handler) {
-    if (!this.__eventListeners[eventName]) return;
-
+    if (!this.__eventListeners[eventName]) {
+      return;
+    }
+    var eventListener = this.__eventListeners[eventName];
     if (handler) {
-      fabric.util.removeFromArray(this.__eventListeners[eventName], handler);
+      eventListener[eventListener.indexOf(handler)] = false;
     }
     else {
-      this.__eventListeners[eventName].length = 0;
+      fabric.util.array.fill(eventListener, false);
     }
   }
 
@@ -38,7 +40,7 @@
     }
     else {
       if (!this.__eventListeners[eventName]) {
-        this.__eventListeners[eventName] = [ ];
+        this.__eventListeners[eventName] = [];
       }
       this.__eventListeners[eventName].push(handler);
     }
@@ -57,11 +59,15 @@
    * @chainable
    */
   function stopObserving(eventName, handler) {
-    if (!this.__eventListeners) return;
+    if (!this.__eventListeners) {
+      return;
+    }
 
     // remove all key/value pairs (event name -> event handler)
     if (arguments.length === 0) {
-      this.__eventListeners = { };
+      for (eventName in this.__eventListeners) {
+        _removeEventListener.call(this, eventName);
+      }
     }
     // one object with key/value pairs was passed
     else if (arguments.length === 1 && typeof arguments[0] === 'object') {
@@ -86,21 +92,28 @@
    * @chainable
    */
   function fire(eventName, options) {
-    if (!this.__eventListeners) return;
+    if (!this.__eventListeners) {
+      return;
+    }
 
     var listenersForEvent = this.__eventListeners[eventName];
-    if (!listenersForEvent) return;
-    for (var i = 0, len = listenersForEvent.length; i < len; i++) {
-      // avoiding try/catch for perf. reasons
-      listenersForEvent[i].call(this, options || { });
+    if (!listenersForEvent) {
+      return;
     }
+
+    for (var i = 0, len = listenersForEvent.length; i < len; i++) {
+      listenersForEvent[i] && listenersForEvent[i].call(this, options || { });
+    }
+    this.__eventListeners[eventName] = listenersForEvent.filter(function(value) {
+      return value !== false;
+    });
     return this;
   }
 
   /**
    * @namespace fabric.Observable
-   * @tutorial {@link http://fabricjs.com/fabric-intro-part-2/#events}
-   * @see {@link http://fabricjs.com/events/|Events demo}
+   * @tutorial {@link http://fabricjs.com/fabric-intro-part-2#events}
+   * @see {@link http://fabricjs.com/events|Events demo}
    */
   fabric.Observable = {
     observe: observe,

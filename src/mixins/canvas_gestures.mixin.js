@@ -1,16 +1,23 @@
+/**
+ * Adds support for multi-touch gestures using the Event.js library.
+ * Fires the following custom events:
+ * - touch:gesture
+ * - touch:drag
+ * - touch:orientation
+ * - touch:shake
+ * - touch:longpress
+ */
 (function() {
 
   var degreesToRadians = fabric.util.degreesToRadians,
       radiansToDegrees = fabric.util.radiansToDegrees;
 
   fabric.util.object.extend(fabric.Canvas.prototype, /** @lends fabric.Canvas.prototype */ {
-
     /**
      * Method that defines actions when an Event.js gesture is detected on an object. Currently only supports
      * 2 finger gestures.
-     *
-     * @param e Event object by Event.js
-     * @param self Event proxy object by Event.js
+     * @param {Event} e Event object by Event.js
+     * @param {Event} self Event proxy object by Event.js
      */
     __onTransformGesture: function(e, self) {
 
@@ -20,85 +27,136 @@
 
       var target = this.findTarget(e);
       if ('undefined' !== typeof target) {
-        this.onBeforeScaleRotate(target);
-        this._rotateObjectByAngle(self.rotation);
-        this._scaleObjectBy(self.scale);
+        this.__gesturesParams = {
+          e: e,
+          self: self,
+          target: target
+        };
+
+        this.__gesturesRenderer();
       }
 
-      this.fire('touch:gesture', { target: target, e: e, self: self });
+      this.fire('touch:gesture', {
+        target: target, e: e, self: self
+      });
+    },
+    __gesturesParams: null,
+    __gesturesRenderer: function() {
+
+      if (this.__gesturesParams === null || this._currentTransform === null) {
+        return;
+      }
+
+      var self = this.__gesturesParams.self,
+          t = this._currentTransform,
+          e = this.__gesturesParams.e;
+
+      t.action = 'scale';
+      t.originX = t.originY = 'center';
+      this._setOriginToCenter(t.target);
+
+      this._scaleObjectBy(self.scale, e);
+
+      if (self.rotation !== 0) {
+        t.action = 'rotate';
+        this._rotateObjectByAngle(self.rotation, e);
+      }
+
+      this._setCenterToOrigin(t.target);
+
+      this.requestRenderAll();
+      t.action = 'drag';
     },
 
     /**
      * Method that defines actions when an Event.js drag is detected.
      *
-     * @param e Event object by Event.js
-     * @param self Event proxy object by Event.js
+     * @param {Event} e Event object by Event.js
+     * @param {Event} self Event proxy object by Event.js
      */
     __onDrag: function(e, self) {
-      this.fire('touch:drag', { e: e, self: self });
+      this.fire('touch:drag', {
+        e: e, self: self
+      });
     },
 
     /**
      * Method that defines actions when an Event.js orientation event is detected.
      *
-     * @param e Event object by Event.js
-     * @param self Event proxy object by Event.js
+     * @param {Event} e Event object by Event.js
+     * @param {Event} self Event proxy object by Event.js
      */
     __onOrientationChange: function(e, self) {
-      this.fire('touch:orientation', { e: e, self: self });
+      this.fire('touch:orientation', {
+        e: e, self: self
+      });
     },
 
     /**
      * Method that defines actions when an Event.js shake event is detected.
      *
-     * @param e Event object by Event.js
-     * @param self Event proxy object by Event.js
+     * @param {Event} e Event object by Event.js
+     * @param {Event} self Event proxy object by Event.js
      */
     __onShake: function(e, self) {
-      this.fire('touch:shake', { e: e, self: self });
+      this.fire('touch:shake', {
+        e: e, self: self
+      });
+    },
+
+    /**
+     * Method that defines actions when an Event.js longpress event is detected.
+     *
+     * @param {Event} e Event object by Event.js
+     * @param {Event} self Event proxy object by Event.js
+     */
+    __onLongPress: function(e, self) {
+      this.fire('touch:longpress', {
+        e: e, self: self
+      });
     },
 
     /**
      * Scales an object by a factor
-     * @param s {Number} The scale factor to apply to the current scale level
-     * @param by {String} Either 'x' or 'y' - specifies dimension constraint by which to scale an object.
-     *                    When not provided, an object is scaled by both dimensions equally
+     * @param {Number} s The scale factor to apply to the current scale level
+     * @param {Event} e Event object by Event.js
      */
-    _scaleObjectBy: function(s, by) {
+    _scaleObjectBy: function(s, e) {
       var t = this._currentTransform,
           target = t.target,
           lockScalingX = target.get('lockScalingX'),
           lockScalingY = target.get('lockScalingY');
 
-      if (lockScalingX && lockScalingY) return;
+      if (lockScalingX && lockScalingY) {
+        return;
+      }
 
       target._scaling = true;
 
-      if (!by) {
-        if (!lockScalingX) {
-          target.set('scaleX', t.scaleX * s);
-        }
-        if (!lockScalingY) {
-          target.set('scaleY', t.scaleY * s);
-        }
-      }
-      else if (by === 'x' && !target.get('lockUniScaling')) {
-        lockScalingX || target.set('scaleX', t.scaleX * s);
-      }
-      else if (by === 'y' && !target.get('lockUniScaling')) {
-        lockScalingY || target.set('scaleY', t.scaleY * s);
-      }
+      var constraintPosition = target.translateToOriginPoint(target.getCenterPoint(), t.originX, t.originY),
+          dim = target._getTransformedDimensions();
+
+      this._setObjectScale(new fabric.Point(t.scaleX * dim.x * s / target.scaleX, t.scaleY * dim.y * s / target.scaleY),
+        t, lockScalingX, lockScalingY, null, target.get('lockScalingFlip'), dim);
+
+      target.setPositionByOrigin(constraintPosition, t.originX, t.originY);
+
+      this._fire('scaling', target, e);
     },
 
     /**
      * Rotates object by an angle
-     * @param curAngle {Number} the angle of rotation in degrees
+     * @param {Number} curAngle The angle of rotation in degrees
+     * @param {Event} e Event object by Event.js
      */
-    _rotateObjectByAngle: function(curAngle) {
+    _rotateObjectByAngle: function(curAngle, e) {
       var t = this._currentTransform;
 
-      if (t.target.get('lockRotation')) return;
+      if (t.target.get('lockRotation')) {
+        return;
+      }
       t.target.angle = radiansToDegrees(degreesToRadians(curAngle) + t.theta);
+      this._fire('rotating', t.target, e);
     }
   });
 })();

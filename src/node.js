@@ -9,8 +9,8 @@
       HTTP = require('http'),
       HTTPS = require('https'),
 
-      Canvas = require('canvas'),
-      Image = require('canvas').Image;
+      Canvas = require(fabric.canvasModule),
+      Image = require(fabric.canvasModule).Image;
 
   /** @private */
   function request(url, encoding, callback) {
@@ -22,7 +22,7 @@
     }
 
     // assign request handler based on protocol
-    var reqHandler = ( oURL.port === 443 ) ? HTTPS : HTTP,
+    var reqHandler = (oURL.protocol.indexOf('https:') === 0 ) ? HTTPS : HTTP,
         req = reqHandler.request({
           hostname: oURL.hostname,
           port: oURL.port,
@@ -50,13 +50,14 @@
       else {
         fabric.log(err.message);
       }
+      callback(null);
     });
 
     req.end();
   }
 
   /** @private */
-  function requestFs(path, callback){
+  function requestFs(path, callback) {
     var fs = require('fs');
     fs.readFile(path, function (err, data) {
       if (err) {
@@ -71,10 +72,16 @@
 
   fabric.util.loadImage = function(url, callback, context) {
     function createImageAndCallBack(data) {
-      img.src = new Buffer(data, 'binary');
-      // preserving original url, which seems to be lost in node-canvas
-      img._src = url;
-      callback && callback.call(context, img);
+      if (data) {
+        img.src = new Buffer(data, 'binary');
+        // preserving original url, which seems to be lost in node-canvas
+        img._src = url;
+        callback && callback.call(context, img);
+      }
+      else {
+        img = null;
+        callback && callback.call(context, null, true);
+      }
     }
     var img = new Image();
     if (url && (url instanceof Buffer || url.indexOf('data') === 0)) {
@@ -115,51 +122,55 @@
 
   fabric.util.getScript = function(url, callback) {
     request(url, '', function(body) {
+      // eslint-disable-next-line no-eval
       eval(body);
       callback && callback();
     });
   };
 
-  fabric.Image.fromObject = function(object, callback) {
-    fabric.util.loadImage(object.src, function(img) {
-      var oImg = new fabric.Image(img);
-
-      oImg._initConfig(object);
-      oImg._initFilters(object, function(filters) {
-        oImg.filters = filters || [ ];
-        callback && callback(oImg);
-      });
-    });
-  };
+  // fabric.util.createCanvasElement = function(_, width, height) {
+  //   return new Canvas(width, height);
+  // }
 
   /**
    * Only available when running fabric on node.js
-   * @param width Canvas width
-   * @param height Canvas height
-   * @param {Object} options to pass to FabricCanvas.
-   * @param {Object} options to pass to NodeCanvas.
+   * @param {Number} width Canvas width
+   * @param {Number} height Canvas height
+   * @param {Object} [options] Options to pass to FabricCanvas.
+   * @param {Object} [nodeCanvasOptions] Options to pass to NodeCanvas.
    * @return {Object} wrapped canvas instance
    */
   fabric.createCanvasForNode = function(width, height, options, nodeCanvasOptions) {
     nodeCanvasOptions = nodeCanvasOptions || options;
 
     var canvasEl = fabric.document.createElement('canvas'),
-        nodeCanvas = new Canvas(width || 600, height || 600, nodeCanvasOptions);
-
-    // jsdom doesn't create style on canvas element, so here be temp. workaround
-    canvasEl.style = { };
+        nodeCanvas = new Canvas(width || 600, height || 600, nodeCanvasOptions),
+        nodeCacheCanvas = new Canvas(width || 600, height || 600, nodeCanvasOptions);
 
     canvasEl.width = nodeCanvas.width;
     canvasEl.height = nodeCanvas.height;
-
+    options = options || { };
+    options.nodeCanvas = nodeCanvas;
+    options.nodeCacheCanvas = nodeCacheCanvas;
     var FabricCanvas = fabric.Canvas || fabric.StaticCanvas,
         fabricCanvas = new FabricCanvas(canvasEl, options);
-
-    fabricCanvas.contextContainer = nodeCanvas.getContext('2d');
     fabricCanvas.nodeCanvas = nodeCanvas;
+    fabricCanvas.nodeCacheCanvas = nodeCacheCanvas;
+    fabricCanvas.contextContainer = nodeCanvas.getContext('2d');
+    fabricCanvas.contextCache = nodeCacheCanvas.getContext('2d');
     fabricCanvas.Font = Canvas.Font;
-
     return fabricCanvas;
+  };
+
+  var originaInitStatic = fabric.StaticCanvas.prototype._initStatic;
+  fabric.StaticCanvas.prototype._initStatic = function(el, options) {
+    el = el || fabric.document.createElement('canvas');
+    this.nodeCanvas = new Canvas(el.width, el.height);
+    this.nodeCacheCanvas = new Canvas(el.width, el.height);
+    originaInitStatic.call(this, el, options);
+    this.contextContainer = this.nodeCanvas.getContext('2d');
+    this.contextCache = this.nodeCacheCanvas.getContext('2d');
+    this.Font = Canvas.Font;
   };
 
   /** @ignore */
@@ -171,24 +182,30 @@
     return this.nodeCanvas.createJPEGStream(opts);
   };
 
-  var origSetWidth = fabric.StaticCanvas.prototype.setWidth;
-  fabric.StaticCanvas.prototype.setWidth = function(width) {
-    origSetWidth.call(this, width);
-    this.nodeCanvas.width = width;
+  fabric.StaticCanvas.prototype._initRetinaScaling = function() {
+    if (!this._isRetinaScaling()) {
+      return;
+    }
+
+    this.lowerCanvasEl.setAttribute('width', this.width * fabric.devicePixelRatio);
+    this.lowerCanvasEl.setAttribute('height', this.height * fabric.devicePixelRatio);
+    this.nodeCanvas.width = this.width * fabric.devicePixelRatio;
+    this.nodeCanvas.height = this.height * fabric.devicePixelRatio;
+    this.contextContainer.scale(fabric.devicePixelRatio, fabric.devicePixelRatio);
     return this;
   };
   if (fabric.Canvas) {
-    fabric.Canvas.prototype.setWidth = fabric.StaticCanvas.prototype.setWidth;
+    fabric.Canvas.prototype._initRetinaScaling = fabric.StaticCanvas.prototype._initRetinaScaling;
   }
 
-  var origSetHeight = fabric.StaticCanvas.prototype.setHeight;
-  fabric.StaticCanvas.prototype.setHeight = function(height) {
-    origSetHeight.call(this, height);
-    this.nodeCanvas.height = height;
+  var origSetBackstoreDimension = fabric.StaticCanvas.prototype._setBackstoreDimension;
+  fabric.StaticCanvas.prototype._setBackstoreDimension = function(prop, value) {
+    origSetBackstoreDimension.call(this, prop, value);
+    this.nodeCanvas[prop] = value;
     return this;
   };
   if (fabric.Canvas) {
-    fabric.Canvas.prototype.setHeight = fabric.StaticCanvas.prototype.setHeight;
+    fabric.Canvas.prototype._setBackstoreDimension = fabric.StaticCanvas.prototype._setBackstoreDimension;
   }
 
 })();
